@@ -56,15 +56,23 @@ for sample in "${SAMPLES[@]}"; do
     mkdir -p "$sample_outdir"
     log "${sample}: starting chisel_rdr ($(wc -l < "$barcodes") barcodes)"
 
+    # Pre-filter BAM to valid barcodes — chisel_rdr does not support --barcodes;
+    # samtools -D CB:file keeps only reads whose CB tag value is in the whitelist.
+    filtered_bam="${sample_outdir}/filtered.bam"
+    if [[ ! -f "$filtered_bam" ]]; then
+        log "${sample}: filtering BAM to valid barcodes"
+        samtools view -b -D CB:"$barcodes" "$bam" > "$filtered_bam"
+        samtools index "$filtered_bam"
+    fi
+
     # chisel_rdr writes output to the current working directory
     cd "$sample_outdir"
 
     chisel_rdr \
-        -t "$bam" \
+        -t "$filtered_bam" \
         -r "$REF" \
         -b "$BIN_SIZE" \
         -j "$THREADS" \
-        --barcodes "$barcodes" \
         --cellprefix "CB:Z:"
 
     # Rename columns for SPRINTER compatibility

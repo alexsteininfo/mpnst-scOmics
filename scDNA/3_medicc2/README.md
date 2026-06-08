@@ -15,11 +15,61 @@ Scripts for running [MEDICC2](https://bitbucket.org/schwarzlab/medicc2/src/maste
 | `run_medicc2_all.sh` | All cells | No | 1.5 Mb |
 | `run_medicc2_percluster_bootstrapping.sh` | Per cluster | Yes (chr-wise, n=100) | 1.5 Mb |
 
-All scripts use `--input-type t` (transposed TSV) and `--events`. The `--filter-segment-length` flag filters short noisy segments before tree inference. Output goes to `/mnt/iribhm/homes/aste0033/projects/CNA-PhyloAnalysis/MEDICC2/10X_DLP/`.
+All scripts use `--input-type t` (transposed TSV) and `--events`. The `--filter-segment-length` flag filters short noisy segments before tree inference. Output goes to `/srv/home/aste0033/projects/MPNST/Haixi/scDNA/MEDICC2_output/`.
 
 **`unpack_pickle.py`** — MEDICC2 stores bootstrap replicate trees as a pandas DataFrame in `*_bootstrap_trees_df.pickle` (unique topologies + occurrence counts). This script expands by count and writes one Newick string per replicate to a multi-tree `.new` file readable by `ape::read.tree()`. Requires `biopython` and `pandas` (e.g. `micromamba run -n python python unpack_pickle.py`).
 - Input: `per_cluster_bootstrap_n20/minseg_1.5/<sample>/*_bootstrap_trees_df.pickle`
 - Output: `per_cluster_bootstrap_n20/unpacked_minseg_1.5/<sample>_bootstrap_trees.new`
+
+---
+
+## Full-pipeline bootstrap for CNA burden estimation
+
+MEDICC2's internal bootstrap (`--bootstrap-method chr-wise`) skips `update_branch_lengths()` — the ancestral reconstruction step that converts pairwise MED distances to integer FST MED event counts (see [Why bootstrap branch lengths are non-integer](#why-bootstrap-branch-lengths-are-non-integer) below). Its bootstrap trees therefore cannot be used to estimate variance in per-cell CNA burden (sum of edge lengths from tip to MRCA), which requires integer branch lengths comparable to the final tree.
+
+The two scripts below implement an external bootstrap that runs the full MEDICC2 pipeline on each replicate dataset, yielding proper integer branch lengths throughout.
+
+### Step 1 — `create_bootstrap_datasets.R`
+
+Generates N bootstrap TSV files from one input TSV. Two resampling methods are supported:
+
+- **`chr-wise`** — samples chromosomes with replacement (same unit as MEDICC2's internal bootstrap), preserving within-chromosome correlation of CNA events. Draws are renumbered sequentially as integers 1..N so MEDICC2 always receives a valid integer-labelled genome. Chromosomes missing from a replicate contribute no events; chromosomes drawn twice contribute double weight.
+- **`cell-wise`** — samples cells with replacement, assessing sensitivity to which cells were sequenced. Cells drawn more than once are renamed with `_copy2`, `_copy3` suffixes; their identical CN profiles produce zero pairwise MED distance, placing them as a zero-length cherry in the NJ tree.
+
+Both methods write a `metadata.tsv` alongside the bootstrap TSVs recording the full draw-to-original mapping, which is needed to normalise burden values in downstream analysis (e.g. unique-chromosome coverage per chr-wise replicate).
+
+**Usage:** set `input`, `method`, `n_boot`, `seed`, and `out_dir` at the top of the script, then run:
+```bash
+micromamba run -n R Rscript create_bootstrap_datasets.R
+```
+
+**Output layout:**
+```
+<out_dir>/<method>/<sample_name>/
+  boot_001.tsv  ...  boot_N.tsv
+  metadata.tsv
+    chr-wise  columns: replicate, draw_index, new_chrom, original_chrom
+    cell-wise columns: replicate, draw_index, new_cell_id, original_cell_id
+```
+
+To generate all per-cluster bootstraps for both methods, update `input` and `method` in the script and re-run for each combination.
+
+Requires `data.table` (available in the `R` micromamba environment).
+
+### Step 2 — `run_medicc2_full_bootstrap.sh`
+
+Runs MEDICC2 with `--events` (no `--bootstrap-nr`) on every bootstrap TSV from step 1. Each replicate gets one full pipeline invocation including ancestral reconstruction, producing integer branch lengths in `*_final_tree.new`.
+
+Set `BOOTSTRAP_DIR` and `OUTPUT_DIR` at the top of the script before running. Output mirrors the input directory structure:
+
+```
+<OUTPUT_DIR>/<method>/<sample_name>/<boot_NNN>/
+  boot_NNN_final_tree.new          ← used in burden analysis (step 3)
+  boot_NNN_pairwise_distances.tsv
+  ...
+```
+
+**Note on scale:** with 20+ cluster TSVs × 2 methods × 100 replicates = 4000+ MEDICC2 runs. Consider submitting as cluster jobs rather than running the script sequentially.
 
 
 ---
@@ -52,7 +102,7 @@ Bootstrap edge distances can be used for this, but two obstacles must be underst
 - **Relative stability**: edges with low CV are more robustly estimated than high-CV edges.
 - **Chromosome dependency screening**: very high variance suggests the branch depends on few chromosomes.
 
-To estimate variance in the same quantity as the final tree, `update_branch_lengths()` would need to be run on each replicate after ancestral reconstruction, with values normalised by the total segment count of each bootstrap genome. This is not currently implemented and would be computationally expensive.
+To estimate variance in the same quantity as the final tree, `update_branch_lengths()` would need to be run on each replicate after ancestral reconstruction, with values normalised by the total segment count of each bootstrap genome. This is implemented by the full-pipeline bootstrap described above (`create_bootstrap_datasets.R` + `run_medicc2_full_bootstrap.sh`).
 
 ### Known limitation
 
