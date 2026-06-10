@@ -73,6 +73,9 @@ meta$region     <- sub("_.*", "", meta$barcode_raw)
 meta$technology <- sub("^[^_]+_([^_]+)_.*", "\\1", meta$barcode_raw)
 meta$barcode    <- sub("^[^_]+_[^_]+_", "", meta$barcode_raw)   # strip region_tech prefix
 meta$barcode    <- sub("\\.bam$", "", meta$barcode)              # strip .bam (DLP only)
+meta$barcode    <- ifelse(meta$technology == "10X",
+                          sub("-[0-9]+$", "", meta$barcode),     # strip GEM group suffix (-1 etc.)
+                          meta$barcode)
 
 # ── Assign cell_type ──────────────────────────────────────────────────────────
 

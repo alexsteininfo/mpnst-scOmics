@@ -53,8 +53,8 @@ die() { echo "[$(date '+%H:%M:%S')] ERROR: $*" >&2; exit 1; }
 RTSCORES_HG38="${RESOURCE_DIR}/rtscores_hg38.csv.gz"
 GAPS_HG38="${RESOURCE_DIR}/gaps_hg38.tsv"
 
-[[ -f "$RTSCORES_HG38" ]] || die "hg38 RT scores not found — run liftover_dlpp.sh first"
-[[ -f "$GAPS_HG38"     ]] || die "hg38 gaps file not found — run liftover_dlpp.sh first"
+[[ -f "$RTSCORES_HG38" ]] || die "hg38 RT scores not found — run resources/liftover_dlpp.sh first"
+[[ -f "$GAPS_HG38"     ]] || die "hg38 gaps file not found — run resources/liftover_dlpp.sh first"
 
 mkdir -p "$BASE_OUTDIR"
 

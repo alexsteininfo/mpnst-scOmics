@@ -5,15 +5,77 @@ SPRINTER takes the per-cell 50 kb RDR profiles produced by CHISEL and jointly in
 - Replication timing alterations per clone
 - Clone-level copy-number profiles corrected for replication state
 
+---
+
+## Directory structure
+
+```
+4_sprinter/
+  chisel/          CHISEL RDR generation scripts (prerequisite for SPRINTER)
+  resources/       One-time hg38 resource preparation
+  legacy/          Older DLP-only exploratory scripts (superseded by perclone/ and persample/)
+  perclone/        Per-K-means-clone analysis (72 runs: 24 groups × 3 tech modes)
+  persample/       Per-region × technology analysis (12 runs: 6 regions × 2 techs)
+  results/         Generated outputs (summary tables, figures)
+```
+
+---
+
 ## Scripts
+
+### `chisel/`
 
 | Script | Purpose |
 |--------|---------|
-| `liftover_dlpp.sh` | One-time liftover of bundled hg19 resources to hg38 (run before `sprinter_dlpp.sh`) |
-| `sprinter_dlpp.sh` | Runs SPRINTER on all six DLP+ per-sample CHISEL outputs (per-clone S-phase fractions) |
-| `sprinter_dlpp_all.sh` | Same, but treats each sample as a single clone (`dev --fixclones`) for sample-level S-phase fractions |
-| `run_sprinter_perclone.sh` | Runs SPRINTER for each predefined K-means clone and per-region healthy population (see below) |
-| `summarize_sphase.R` | Collects all per-clone SPRINTER outputs into one summary table |
+| `chisel_rdr_dlpp.sh` | Compute 50 kb RDR profiles per cell for DLP+ samples |
+| `chisel_rdr_10x.sh` | Compute 50 kb RDR profiles per cell for 10X samples |
+
+### `resources/`
+
+| Script | Purpose |
+|--------|---------|
+| `liftover_dlpp.sh` | One-time liftover of bundled hg19 SPRINTER resources (rtscores, gaps) to hg38; must be run before any SPRINTER analysis |
+
+### `perclone/`
+
+| Script | Purpose |
+|--------|---------|
+| `run_sprinter_perclone.sh` | Runs SPRINTER for each predefined K-means clone and per-region healthy population (72 runs: 24 groups × 3 modes) |
+| `summarize_sphase.R` | Collects all per-clone SPRINTER outputs into `results/sphase_summary.tsv` |
+| `plot_sphase.R` | Reads `results/sphase_summary.tsv` and produces `results/sphase_fractions.png` |
+
+### `persample/`
+
+| Script | Purpose |
+|--------|---------|
+| `run_sprinter_persample.sh` | Runs SPRINTER once per region × technology (12 runs), pooling all clones with real multi-clone `--fixclones` assignments |
+| `summarize_sphase_persample.R` | Collects per-sample SPRINTER outputs into `results/sphase_summary_persample.tsv`, breaking each run down by clone via metadata join |
+| `plot_sphase_persample.R` | Reads `results/sphase_summary_persample.tsv` and produces `results/sphase_fractions_persample.png` |
+
+### `legacy/`
+
+Older DLP-only scripts from early exploratory runs. Superseded by the `perclone/` and
+`persample/` pipelines which cover both 10X and DLP+ with proper K-means clone assignments.
+
+| Script | Purpose |
+|--------|---------|
+| `sprinter_dlpp.sh` | DLP+ per-sample SPRINTER (SPRINTER's own CN clustering, no fixclones) |
+| `sprinter_dlpp_all.sh` | DLP+ per-sample SPRINTER treating each sample as a single clone |
+| `sprinter_dlpp_default.sh` | Variant of `sprinter_dlpp.sh` with the same default CN parameters |
+| `sprinter_10x_all.sh` | Placeholder — not yet implemented |
+
+### `results/`
+
+Generated outputs (not tracked in git if large):
+
+| File | Description |
+|------|-------------|
+| `sphase_summary.tsv` | Per-clone S-phase fractions (perclone pipeline) |
+| `sphase_fractions.png` | Per-clone S-phase fraction figure |
+| `sphase_summary_persample.tsv` | Per-clone S-phase fractions within per-sample runs |
+| `sphase_fractions_persample.png` | Per-sample S-phase fraction figure |
+
+---
 
 ## Package patches
 
@@ -47,7 +109,7 @@ Stale `.pyc` deleted after patch.
 
 ### pyliftover
 
-`liftover_dlpp.sh` uses `pyliftover` — a pure-Python reimplementation of UCSC liftOver that requires no native binary. It is installed in the sprinter micromamba environment via pip and has no GLIBC dependency.
+`resources/liftover_dlpp.sh` uses `pyliftover` — a pure-Python reimplementation of UCSC liftOver that requires no native binary. It is installed in the sprinter micromamba environment via pip and has no GLIBC dependency.
 
 If it needs to be reinstalled:
 
@@ -55,65 +117,13 @@ If it needs to be reinstalled:
 /srv/home/aste0033/micromamba/envs/sprinter/bin/pip install pyliftover
 ```
 
-Note: the UCSC `liftOver` binary (downloaded earlier) is no longer used. It can be removed:
-
-```bash
-rm /srv/home/aste0033/micromamba/envs/sprinter/bin/liftOver
-```
-
-## Pipeline steps
-
-### Step 1 — hg38 resource generation (`liftover_dlpp.sh`, run once)
-
-SPRINTER ships with hg19 resources: `rtscores.csv.gz` (replication timing scores for multiple cell lines), `gccont.csv.gz` (GC content), and `gaps_hg19.tsv` (low-mappability gap regions). The DLP+ libraries are aligned to hg38, so the bundled resources must be lifted to hg38 before use.
-
-Run once; results are cached in `$RESOURCE_DIR` and reused by `sprinter_dlpp.sh`.
-
-**Liftover procedure:**
-
-1. Download the UCSC `hg19ToHg38.over.chain.gz` chain file if absent.
-2. **rtscores:** For each hg19 50 kb bin, compute its midpoint and lift that single-base coordinate to hg38. Snap the hg38 position to the containing 50 kb bin (`bin_start = (pos // 50000) * 50000`). Where multiple hg19 bins map to the same hg38 bin the scores are averaged; bins whose midpoints do not lift are dropped.
-3. **gaps:** Fetch hg38 centromere and gap annotations directly from UCSC (`centromeres.txt.gz` + `gap.txt.gz`) — hg19 centromere/telomere coordinates do not lift reliably via the chain file.
-4. GC content is computed at run time from the hg38 reference FASTA via `--refgenome` — the bundled `gccont.csv.gz` is not used.
-
-**Cached files:**
-
-| File | Description |
-|------|-------------|
-| `resources_hg38/rtscores_hg38.csv.gz` | Replication timing scores on hg38 50 kb bins |
-| `resources_hg38/gaps_hg38.tsv` | Mapping gap regions in hg38 coordinates |
-| `resources_hg38/hg19ToHg38.over.chain.gz` | UCSC liftOver chain file |
-
-### Step 2 — per-sample SPRINTER run
-
-For each sample (R1–R5, P):
-
-1. Verify that `rdr.tsv` from CHISEL exists and is non-empty.
-2. Gzip the `rdr.tsv` to produce a temporary `input.tsv.gz` (SPRINTER expects compressed input).
-3. Run `sprinter` with:
-   - `--refgenome hg38.fa` for on-the-fly GC correction
-   - `dev --rtscores rtscores_hg38.csv.gz` (lifted hg38 RT scores)
-   - `dev --gapsfile gaps_hg38.tsv` (lifted hg38 gap regions)
-4. Remove the temporary gzipped input.
-
-**Output:** `$OUTDIR/<sample>/sprinter.output.tsv.gz` — per-cell table with predicted clone, cell-cycle phase, replication timing statistics, and copy-number calls.
-
-## Key parameters
-
-| Parameter | Value | Notes |
-|-----------|-------|-------|
-| `--minreads` | 100,000 | Minimum mapped reads per cell; DLP+ cells average ~688k |
-| `--rtreads` | 200 | Target reads/bin for RT analysis (controls RT bin size) |
-| `--cnreads` | 1,000 | Target reads/bin for CN analysis (controls CN bin size) |
-| `--minnumcells` | 15 | Minimum cells to define a clone |
-| `--maxploidy` | 4 | Raise to 5–6 if whole-genome doubling is suspected |
-
 ---
 
-## Per-clone S-phase analysis
+## Per-clone S-phase analysis (`perclone/`)
 
 Estimates S-phase fractions for each predefined tumour clone and for healthy cells per region,
 using K-means clusters (K=22) defined on the combined 10X+DLP+ ASCAT.sc copy-number profiles.
+Each clone is run as an independent SPRINTER job with all cells assigned to a single clone "1".
 
 ### Groups
 
@@ -134,13 +144,17 @@ RDR file are skipped and logged.
 ### Run order
 
 ```
-scDNA/2_clustering/create_cell_metadata.R   # generates metadata_cells.tsv
+scDNA/2_clustering/create_cell_metadata.R      # generates metadata_cells.tsv
         ↓
-scDNA/4_sprinter/chisel/chisel_rdr_10x.sh   # (required for 10X/combined modes)
+scDNA/4_sprinter/chisel/chisel_rdr_10x.sh      # (required for 10X/combined modes)
         ↓
-scDNA/4_sprinter/run_sprinter_perclone.sh   # runs up to 72 SPRINTER jobs
+scDNA/4_sprinter/resources/liftover_dlpp.sh    # (once)
         ↓
-scDNA/4_sprinter/summarize_sphase.R         # collects results → sphase_summary.tsv
+scDNA/4_sprinter/perclone/run_sprinter_perclone.sh
+        ↓
+scDNA/4_sprinter/perclone/summarize_sphase.R
+        ↓
+scDNA/4_sprinter/perclone/plot_sphase.R
 ```
 
 ### Key parameters
@@ -150,7 +164,6 @@ scDNA/4_sprinter/summarize_sphase.R         # collects results → sphase_summar
 | `--maxploidy` | 8 | High ploidy for MPNST (highly aneuploid) |
 | `--minreads` | 100,000 | Cells below this threshold are dropped by SPRINTER |
 | `--fixclones` | per-group TSV | Assigns all cells in the filtered RDR to clone "1" |
-| `--minnumcells` / `--minpropcells` | not set | Not needed with `--fixclones` |
 
 ### Outputs
 
@@ -166,22 +179,147 @@ scDNA/4_sprinter/summarize_sphase.R         # collects results → sphase_summar
   run_log.txt
 ```
 
-Summary table: `scDNA/4_sprinter/sphase_summary.tsv`
+Summary table: `results/sphase_summary.tsv`
 Columns: `group_name | cell_type | clone_label | region | technology_mode | n_cells | n_sphase | sphase_fraction`
+
+Figure: `results/sphase_fractions.png`
+One panel per region of origin (P | R1–R5). Within each panel, strictly three dodged bars per
+group (combined / 10X / DLP+); modes with no data appear as zero-height bars. Cell counts are
+shown as vertical labels above each bar. Groups with n_cells < 15 are shown at 40% opacity.
+
+### Known failures — healthy_R3/10X and healthy_R4/10X
+
+These two runs crash inside SPRINTER with `ValueError: No objects to concatenate`. The cause
+is a SPRINTER edge case: `assign_s_clones()` assumes at least one cell will be flagged as
+S-phase by the per-cell variance test. When the group is too small to produce any significant
+S-phase calls after FDR correction, `cells_to_assign` is empty, the multiprocessing pool runs
+zero jobs, and `pd.concat([])` fails.
+
+| Group | Cells | S-phase detected | Result |
+|-------|-------|-----------------|--------|
+| healthy_P/10X | 124 | 62 | done |
+| healthy_R1/10X | 77 | 30 | done |
+| healthy_R2/10X | 51 | 15 | done |
+| healthy_R5/10X | 42 | 16 | done |
+| **healthy_R3/10X** | **6** | **0** | **failed** |
+| **healthy_R4/10X** | **17** | **0** | **failed** |
+
+With only 6 and 17 cells respectively, none pass the multiple-testing threshold, so 0 cells are
+declared S-phase. All other healthy 10X groups (42–124 cells) produce enough S-phase calls to
+avoid the crash. The fix would require patching `assign_s_clones()` in the SPRINTER source to
+handle the empty-pool case; this has been left unpatched for now as the omission of two small
+groups does not materially affect the analysis.
+
+---
+
+## Per-sample S-phase analysis (`persample/`)
+
+Estimates S-phase fractions for each predefined tumour clone by pooling all cells from one
+region × technology into a single SPRINTER run. This lets SPRINTER perform within-run GC/RT
+bias correction across all clones simultaneously, which is how SPRINTER is designed to be used
+(it was designed for single samples, not individual clones).
+
+### Design
+
+Instead of running one SPRINTER job per clone, each run covers all cells from one region
+(P, R1–R5) and one technology (10X or DLP+). Healthy, tumour, and unassigned cells are all
+included. Cluster-2 "removed" cells are excluded. Clone identity is passed via `--fixclones`
+with the real clone labels from `metadata_cells.tsv` (e.g. "healthy", "R1_1", "unassigned").
+
+### Runs
+
+12 total: 6 regions (P, R1–R5) × 2 technologies (10X, DLP). No combined mode.
+
+### Run order
+
+```
+scDNA/2_clustering/create_cell_metadata.R       # generates metadata_cells.tsv
+        ↓
+scDNA/4_sprinter/chisel/chisel_rdr_10x.sh       # (required for 10X runs)
+        ↓
+scDNA/4_sprinter/resources/liftover_dlpp.sh     # (once)
+        ↓
+scDNA/4_sprinter/persample/run_sprinter_persample.sh
+        ↓
+scDNA/4_sprinter/persample/summarize_sphase_persample.R
+        ↓
+scDNA/4_sprinter/persample/plot_sphase_persample.R
+```
+
+### Outputs
+
+```
+/srv/home/aste0033/projects/MPNST/scDNA/SPRINTER/persample/
+  P/
+    10X/sprinter.output.tsv.gz
+    DLP/sprinter.output.tsv.gz
+  R1/
+    10X/sprinter.output.tsv.gz
+    DLP/sprinter.output.tsv.gz
+  ...
+  run_log.txt
+```
+
+Summary table: `results/sphase_summary_persample.tsv`
+Columns: `region | technology | clone_label | cell_type | n_cells | n_sphase | sphase_fraction`
+
+Figure: `results/sphase_fractions_persample.png`
+One panel per region. Within each panel, two dodged bars per clone (10X / DLP+). Zero-height
+bars where a technology is absent. Cell counts shown as vertical labels above each bar. Groups
+with n_cells < 15 shown at 40% opacity.
+
+---
+
+## Resource generation (`resources/liftover_dlpp.sh`)
+
+SPRINTER ships with hg19-coordinate replication timing scores and gap regions. Because the
+DLP+ libraries are aligned to hg38, these files must be lifted once before running any analysis.
+
+### Step 1 — hg38 resource generation (run once)
+
+Run once; results are cached in `$RESOURCE_DIR` and reused by all SPRINTER scripts.
+
+**Liftover procedure:**
+
+1. Download the UCSC `hg19ToHg38.over.chain.gz` chain file if absent.
+2. **rtscores:** For each hg19 50 kb bin, compute its midpoint and lift that single-base coordinate to hg38. Snap the hg38 position to the containing 50 kb bin (`bin_start = (pos // 50000) * 50000`). Where multiple hg19 bins map to the same hg38 bin the scores are averaged; bins whose midpoints do not lift are dropped.
+3. **gaps:** Fetch hg38 centromere and gap annotations directly from UCSC (`centromeres.txt.gz` + `gap.txt.gz`) — hg19 centromere/telomere coordinates do not lift reliably via the chain file.
+4. GC content is computed at run time from the hg38 reference FASTA via `--refgenome` — the bundled `gccont.csv.gz` is not used.
+
+**Cached files:**
+
+| File | Description |
+|------|-------------|
+| `resources_hg38/rtscores_hg38.csv.gz` | Replication timing scores on hg38 50 kb bins |
+| `resources_hg38/gaps_hg38.tsv` | Mapping gap regions in hg38 coordinates |
+| `resources_hg38/hg19ToHg38.over.chain.gz` | UCSC liftOver chain file |
+
+---
+
+## Key parameters
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| `--minreads` | 100,000 | Minimum mapped reads per cell; DLP+ cells average ~688k |
+| `--rtreads` | 200 | Target reads/bin for RT analysis (controls RT bin size) |
+| `--cnreads` | 1,000 | Target reads/bin for CN analysis (controls CN bin size) |
+| `--maxploidy` | 8 | Raised from default 4 for MPNST (highly aneuploid) |
+| `--fixclones` | per-run TSV | Bypasses SPRINTER's CN clustering; assigns cells to predefined clones |
 
 ---
 
 ## Dependencies and run order
 
 ```
-fastq_to_bam_dlpp.sh        # align DLP+ FASTQs → per-sample BAMs
+fastq_to_bam_dlpp.sh         # align DLP+ FASTQs → per-sample BAMs
         ↓
-chisel_rdr_dlpp.sh           # compute 50 kb RDR profiles per cell
+chisel/chisel_rdr_dlpp.sh    # compute 50 kb RDR profiles per cell (DLP+)
+chisel/chisel_rdr_10x.sh     # compute 50 kb RDR profiles per cell (10X)
         ↓
-liftover_dlpp.sh             # lift hg19 SPRINTER resources → hg38 (once)
+resources/liftover_dlpp.sh   # lift hg19 SPRINTER resources → hg38 (once)
         ↓
-sprinter_dlpp.sh             # infer replication timing + clone CNAs
-sprinter_dlpp_all.sh         # same, treating each sample as one clone
+perclone/run_sprinter_perclone.sh     # per-clone analysis (72 runs)
+persample/run_sprinter_persample.sh   # per-sample analysis (12 runs)
 ```
 
 CHISEL must complete successfully for all samples before SPRINTER is run. The scripts will skip any sample whose `rdr.tsv` is absent or empty and log a warning.

@@ -5,13 +5,13 @@
 # computes per-group S-phase fractions, and writes a tidy summary table.
 #
 # Input:   /srv/home/aste0033/projects/MPNST/scDNA/SPRINTER/perclone/
-# Output:  scDNA/4_sprinter/sphase_summary.tsv
+# Output:  scDNA/4_sprinter/results/sphase_summary.tsv
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
 BASE_OUTDIR <- "/srv/home/aste0033/projects/MPNST/scDNA/SPRINTER/perclone"
 METADATA    <- "/srv/home/aste0033/GitHub/mpnst-scOmics/scDNA/2_clustering/metadata_cells.tsv"
-OUT_FILE    <- "scDNA/4_sprinter/sphase_summary.tsv"
+OUT_FILE    <- "scDNA/4_sprinter/results/sphase_summary.tsv"
 
 # ── Find all SPRINTER output files ────────────────────────────────────────────
 
@@ -22,7 +22,7 @@ cat("Found", length(out_files), "SPRINTER output files\n")
 
 if (length(out_files) == 0) {
   stop("No SPRINTER outputs found in ", BASE_OUTDIR,
-       "\nRun run_sprinter_perclone.sh first.")
+       "\nRun perclone/run_sprinter_perclone.sh first.")
 }
 
 # ── Load metadata for group annotations ───────────────────────────────────────
@@ -74,9 +74,10 @@ results <- lapply(out_files, function(f) {
     }
 
     # One row per cell (SPRINTER outputs one row per cell in the summary)
+    # IS-S-PHASE is a Python boolean string ("True"/"False"), not R logical
     cell_df  <- unique(df[, c("CELL", "IS-S-PHASE")])
     n_cells  <- nrow(cell_df)
-    n_sphase <- sum(cell_df[["IS-S-PHASE"]], na.rm = TRUE)
+    n_sphase <- sum(cell_df[["IS-S-PHASE"]] == "True", na.rm = TRUE)
 
     data.frame(
       group_name      = group_name,
@@ -96,7 +97,7 @@ results <- lapply(out_files, function(f) {
 
 results <- do.call(rbind, Filter(Negate(is.null), results))
 
-if (nrow(results) == 0) stop("All output files failed to parse.")
+if (is.null(results) || nrow(results) == 0) stop("All output files failed to parse.")
 
 # ── Annotate with cell_type ───────────────────────────────────────────────────
 

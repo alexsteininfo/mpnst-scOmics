@@ -3,7 +3,7 @@
 #
 # SPRINTER ships with hg19-coordinate replication timing scores and gap
 # regions. Because the DLP+ libraries are aligned to hg38, these files
-# must be lifted once before running sprinter_dlpp.sh.
+# must be lifted once before running any SPRINTER analysis scripts.
 #
 # Approach:
 #   For each hg19 50 kb bin, the midpoint is lifted to hg38 via pyliftover
