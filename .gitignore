@@ -1,0 +1,15 @@
+# Local notes / instructions (not part of the tracked project docs)
+CLAUDE.md
+
+# Reference/literature files kept locally, not versioned
+literature/
+
+# OS-generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini

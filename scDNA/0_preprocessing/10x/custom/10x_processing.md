@@ -187,10 +187,10 @@ caches the index to `/tmp` on first run to eliminate repeated NFS reads.
 
 ```bash
 # Full pipeline (fastq → markdup.bam), all 6 samples:
-bash code/0_preprocessing/10x/custom/fastq_to_bam_bwa.sh
+bash scDNA/0_preprocessing/10x/custom/fastq_to_bam_bwa.sh
 
 # BQSR on completed markdup.bam (separate step, when needed):
-bash code/0_preprocessing/10x/custom/run_bqsr_only.sh
+bash scDNA/0_preprocessing/10x/custom/run_bqsr_only.sh
 ```
 
 ### Verification checklist
@@ -245,7 +245,7 @@ Override from the command line:
 ```bash
 Rscript - <<'EOF'
 COUNT_SUFFIX <- "_wl"
-source("code/0_preprocessing/10x/custom/knee_point_cell_calling.R")
+source("scDNA/0_preprocessing/10x/custom/knee_point_cell_calling.R")
 EOF
 ```
 
@@ -255,7 +255,7 @@ If BAMs were produced with `RAW_MODE=true`, the `barcode_counts.txt` files conta
 raw (uncorrected) barcodes. Apply whitelist correction post-hoc without re-aligning:
 
 ```bash
-python3 code/0_preprocessing/10x/custom/apply_whitelist_to_counts.py \
+python3 scDNA/0_preprocessing/10x/custom/apply_whitelist_to_counts.py \
     --whitelist /srv/home/aste0033/projects/MPNST/scDNA/10X/737K-crdna-v1.txt \
     --outdir    /srv/home/aste0033/projects/MPNST/scDNA/10X/bwa_output
 ```
@@ -299,32 +299,32 @@ and `737K-crdna-v1.txt` is expected to bring the Jaccard above 0.7.
 
 ```bash
 # Step 1: extract per-barcode read counts from BAMs
-bash code/0_preprocessing/10x/custom/extract_barcode_counts.sh
+bash scDNA/0_preprocessing/10x/custom/extract_barcode_counts.sh
 
 # Step 2: (optional) post-hoc whitelist correction
-python3 code/0_preprocessing/10x/custom/apply_whitelist_to_counts.py \
+python3 scDNA/0_preprocessing/10x/custom/apply_whitelist_to_counts.py \
     --whitelist /srv/home/aste0033/projects/MPNST/scDNA/10X/737K-crdna-v1.txt \
     --outdir    /srv/home/aste0033/projects/MPNST/scDNA/10X/bwa_output
 
 # Step 3: knee-point cell calling (raw or whitelist-corrected)
 eval "$(micromamba shell hook --shell bash)" && micromamba activate R
-Rscript code/0_preprocessing/10x/custom/knee_point_cell_calling.R          # raw
+Rscript scDNA/0_preprocessing/10x/custom/knee_point_cell_calling.R          # raw
 # or:
 Rscript - <<'EOF'
 COUNT_SUFFIX <- "_wl"
-source("code/0_preprocessing/10x/custom/knee_point_cell_calling.R")
+source("scDNA/0_preprocessing/10x/custom/knee_point_cell_calling.R")
 EOF
 
 # Step 4: Cell Ranger DNA extraction + Jaccard comparison
-Rscript code/0_preprocessing/10x/custom/extract_barcodes_from_rds.R        # raw
+Rscript scDNA/0_preprocessing/10x/custom/extract_barcodes_from_rds.R        # raw
 # or:
 Rscript - <<'EOF'
 KNEE_SUFFIX <- "_wl"
-source("code/0_preprocessing/10x/custom/extract_barcodes_from_rds.R")
+source("scDNA/0_preprocessing/10x/custom/extract_barcodes_from_rds.R")
 EOF
 
 # Step 5: (optional) visual validation overlay
-Rscript code/0_preprocessing/10x/custom/validate_cell_calling.R
+Rscript scDNA/0_preprocessing/10x/custom/validate_cell_calling.R
 ```
 
 After step 3, inspect `knee_plots[_wl].pdf`. If the automatic knee misses the
@@ -357,21 +357,21 @@ samtools index possorted_bam.cells.bam
 ## Full execution order
 
 ```
-1. bash code/0_preprocessing/10x/custom/fastq_to_bam_bwa.sh
+1. bash scDNA/0_preprocessing/10x/custom/fastq_to_bam_bwa.sh
    → produces markdup.bam per sample
 
-2. bash code/0_preprocessing/10x/custom/run_bqsr_only.sh          (when SNV calling needed)
+2. bash scDNA/0_preprocessing/10x/custom/run_bqsr_only.sh          (when SNV calling needed)
    → produces possorted_bam.bam per sample
 
-3. bash code/0_preprocessing/10x/custom/extract_barcode_counts.sh
+3. bash scDNA/0_preprocessing/10x/custom/extract_barcode_counts.sh
    → can run on markdup.bam before BQSR
 
-4. python3 code/0_preprocessing/10x/custom/apply_whitelist_to_counts.py ...
+4. python3 scDNA/0_preprocessing/10x/custom/apply_whitelist_to_counts.py ...
    → only needed if RAW_MODE=true was used in step 1
 
-5. Rscript code/0_preprocessing/10x/custom/knee_point_cell_calling.R
+5. Rscript scDNA/0_preprocessing/10x/custom/knee_point_cell_calling.R
    → inspect knee_plots.pdf; adjust MANUAL_THRESHOLDS if needed
 
-6. Rscript code/0_preprocessing/10x/custom/extract_barcodes_from_rds.R
+6. Rscript scDNA/0_preprocessing/10x/custom/extract_barcodes_from_rds.R
    → Jaccard comparison table
 ```

@@ -79,7 +79,7 @@ Generated outputs (not tracked in git if large):
 
 ## Package patches
 
-Two bugs in the installed SPRINTER package were patched directly in the source (same approach as for CHISEL).
+Three bugs in the installed SPRINTER package were patched directly in the source (same approach as for CHISEL).
 
 ### `inferclones.py` — `IS_REASSIGNED` KeyError when using `--fixclones` with a fresh TSV
 
@@ -102,6 +102,34 @@ clus = clus.sort_values(['CLONE', 'CELL']).reset_index(drop=True)[['CELL', 'CLON
 ```
 
 Stale `.pyc` deleted after patch.
+
+---
+
+### `inferclones.py` — `KeyError: 0` in `process_fixed_clones` when a non-first clone has uniform ploidy
+
+**File:** `/srv/home/aste0033/micromamba/envs/sprinter/lib/python3.12/site-packages/sprinter/libs/inferclones.py`, line 274
+
+**Problem:** `find_mode` falls back to `D[0]` when a clone group has only one cell or a single unique ploidy value. `D` is a grouped Series from `transform()`, so for any clone that is not the first group its pandas index does not contain 0 — label-based `D[0]` raises `KeyError: 0`. `D.iloc[0]` (positional) is correct.
+
+**Before:**
+```python
+find_mode = (lambda D : find_mode_inner(D, scipy.stats.gaussian_kde(D)) if len(D) > 1 and D.nunique() > 1 else D[0])
+```
+
+**After:**
+```python
+find_mode = (lambda D : find_mode_inner(D, scipy.stats.gaussian_kde(D)) if len(D) > 1 and D.nunique() > 1 else D.iloc[0])
+```
+
+Stale `.pyc` deleted after patch.
+
+**Note — related bugs avoided by using integer clone IDs in the fixclones TSV:**
+Two further SPRINTER bugs are triggered specifically by string CLONE labels and are avoided by encoding clone assignments as integers in `persample/run_sprinter_persample.sh` (see script comments):
+
+- `assignrepcells.py:74` — `clones['CLONE'].max() + 1` crashes with `TypeError` when no normal clone is detected and CLONE labels are strings. Integer labels make the arithmetic valid.
+- `inferG2.py:302` — `np.isnan(row['CLONE'])` crashes with `TypeError` when CLONE is a string (it is only valid for numeric/NaN values). Integer labels (and `np.nan` for unassigned cells) satisfy the check correctly.
+
+Neither of these required a source patch. Downstream R scripts are unaffected because they recover original clone labels from `metadata_cells.tsv` via barcode join.
 
 ---
 

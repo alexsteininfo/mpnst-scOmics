@@ -6,9 +6,9 @@
 #
 # Layout: one facet per region (P | R1–R5). Within each facet, two dodged bars
 # per clone label (10X and DLP+). Healthy group is shown first, tumour clones
-# follow in clone-number order, unassigned last. Missing technologies appear as
-# zero-height bars. Cell counts shown as vertical labels above each bar.
-# Groups with n_cells < 15 shown at 40% opacity.
+# follow in clone-number order. Cross-region clones and unassigned are excluded.
+# Missing technologies appear as zero-height bars. Cell counts shown as vertical
+# labels above each bar. Groups with n_cells < 15 shown at 40% opacity.
 
 library(ggplot2)
 library(scales)
@@ -29,14 +29,16 @@ dat <- read.table(IN_FILE, header = TRUE, sep = "\t",
                                  n_sphase        = "integer",
                                  sphase_fraction = "numeric"))
 
+# Keep only region-native clones and healthy; exclude cross-region and unassigned
+dat <- dat[dat$clone_label == "healthy" |
+           startsWith(dat$clone_label, paste0(dat$region, "_")), ]
+
 dat$region <- factor(dat$region, levels = c("P", "R1", "R2", "R3", "R4", "R5"))
 
-# x_order: healthy = 0, tumour clones by numeric suffix, unassigned = Inf
-dat$x_order <- ifelse(
-  dat$clone_label == "healthy",    0L,
-  ifelse(dat$clone_label == "unassigned", 99999L,
-         as.integer(sub(".*_", "", dat$clone_label)))
-)
+# x_order: healthy = 0, tumour clones sorted by numeric suffix
+dat$x_order <- 0L
+tumour_rows <- dat$clone_label != "healthy"
+dat$x_order[tumour_rows] <- as.integer(sub(".*_", "", dat$clone_label[tumour_rows]))
 
 dat$alpha_val <- ifelse(dat$n_cells >= 15, 1.0, 0.4)
 

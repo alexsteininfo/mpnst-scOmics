@@ -75,8 +75,9 @@ run_sprinter_persample() {
   # Metadata columns (1-indexed, tab-separated, header on row 1):
   #   1=barcode  2=region  3=technology  4=kmeans_cluster
   #   5=clone_label  6=cell_type  7=chisel_rdr_path
-  awk -F'\t' 'NR>1 && $2==rg && $3==tc && $6!="removed" { print $1"\t"$5"\t"$7 }' \
-    -v rg="$region" -v tc="$tech" "$METADATA" > "$tmpdir/bc_clone_path.txt"
+  awk -F'\t' -v rg="$region" -v tc="$tech" \
+    'NR>1 && $2==rg && $3==tc && $6!="removed" { print $1"\t"$5"\t"$7 }' \
+    "$METADATA" > "$tmpdir/bc_clone_path.txt"
 
   local n_cells
   n_cells=$(wc -l < "$tmpdir/bc_clone_path.txt")
@@ -134,9 +135,18 @@ run_sprinter_persample() {
     return 0
   fi
 
-  # Build fixclones TSV: barcode → clone_label (multiple distinct clones)
-  awk 'BEGIN{print "CELL\tCLONE"} {print $1"\t"$2}' "$tmpdir/bc_clone_path.txt" \
-    | sort -u > "$tmpdir/fixclones.tsv"
+  # Build fixclones TSV with integer clone IDs.
+  # SPRINTER assumes numeric CLONE labels internally (max()+1 arithmetic when no
+  # normal clone is detected; np.isnan checks in plot code). String labels trigger
+  # crashes in both code paths. Integer IDs are safe; downstream R scripts recover
+  # original clone labels from metadata via barcode join, so the integers are
+  # transparent to the analysis.
+  awk '{print $2}' "$tmpdir/bc_clone_path.txt" | sort -u \
+    | awk '{print $1"\t"NR}' > "$tmpdir/clone_map.txt"
+  { printf 'CELL\tCLONE\n'
+    awk 'NR==FNR { id[$1]=$2; next } { print $1"\t"id[$2] }' \
+      "$tmpdir/clone_map.txt" "$tmpdir/bc_clone_path.txt"; } \
+    > "$tmpdir/fixclones.tsv"
 
   # Gzip the merged RDR (SPRINTER expects compressed input)
   gzip -c "$tmpdir/merged_rdr.tsv" > "$tmpdir/input.tsv.gz"
